@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Havoda 3D Shakllar Yasash (Air 3D Hand Sculptor)</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- MediaPipe Hands CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    :root {
+      --neon-pink: #ff2a8d;
+      --neon-cyan: #00f3ff;
+      --neon-purple: #a82aff;
+      --neon-green: #00ff88;
+      --neon-gold: #ffbe0b;
+      --bg-dark: #07070d;
+      --glass-bg: rgba(12, 13, 24, 0.78);
+      --glass-border: rgba(255, 42, 141, 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      font-family: 'Rajdhani', sans-serif;
+      color: #fff;
+    }
+
+    #app-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: radial-gradient(circle at center, #101226 0%, #05050a 100%);
+    }
+
+    /* Kamera video oqimi */
+    #webcam-video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      opacity: 0.88;
+      filter: contrast(1.1) brightness(0.9);
+      z-index: 1;
+    }
+
+    /* Qo'l bo'g'inlari uchun Canvas */
+    #landmarks-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    /* Three.js 3D Sahna */
+    #three-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* HUD Ustki boshqaruv qatlami */
+    .hud-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 22px;
+    }
+
+    .hud-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      pointer-events: auto;
+    }
+
+    .hud-title-box {
+      background: var(--glass-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      padding: 12px 22px;
+      box-shadow: 0 0 30px rgba(255, 42, 141, 0.25);
+    }
+
+    .brand-title {
+      font-family: 'Orbitron', monospace;
+      font-weight: 800;
+      font-size: 1.25rem;
+      letter-spacing: 2px;
+      background: linear-gradient(90deg, #ff2a8d, #ff7eb3, #00f3ff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-title .live-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #00ff88;
+      box-shadow: 0 0 12px #00ff88;
+      animation: pulse 1.4s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.8); }
+    }
+
+    .hud-subtitle {
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.7);
+      margin-top: 3px;
+      letter-spacing: 1px;
+    }
+
+    .hud-top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .glass-btn {
+      background: var(--glass-bg);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: #fff;
+      padding: 9px 16px;
+      border-radius: 10px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    }
+
+    .glass-btn:hover {
+      border-color: var(--neon-pink);
+      box-shadow: 0 0 18px rgba(255, 42, 141, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .glass-btn.active {
+      border-color: var(--neon-pink);
+      background: rgba(255, 42, 141, 0.28);
+      box-shadow: 0 0 22px rgba(255, 42, 141, 0.6);
+    }
+
+    .glass-btn.danger:hover {
+      border-color: #ff3344;
+      box-shadow: 0 0 20px rgba(255, 51, 68, 0.5);
+    }
+
+    /* Asosiy Ishchi Rejimlar Paneli */
+    .mode-bar {
+      position: absolute;
+      top: 90px;
+      left: 22px;
+      background: var(--glass-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      padding: 14px 18px;
+      pointer-events: auto;
+      max-width: 320px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    }
+
+    .panel-header {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 0.82rem;
+      color: var(--neon-cyan);
+      margin-bottom: 10px;
+      letter-spacing: 1.5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .mode-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .mode-btn {
+      width: 100%;
+      justify-content: flex-start;
+      padding: 10px 14px;
+      font-size: 0.85rem;
+    }
+
+    .shape-selector-box {
+      margin-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      padding-top: 10px;
+    }
+
+    .shape-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .shape-btn {
+      padding: 7px;
+      font-size: 0.72rem;
+      text-align: center;
+      justify-content: center;
+    }
+
+    /* Ranglar paneli */
+    .color-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .color-swatch {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: all 0.2s ease;
+    }
+
+    .color-swatch:hover, .color-swatch.active {
+      transform: scale(1.2);
+      border-color: #fff;
+      box-shadow: 0 0 14px currentColor;
+    }
+
+    /* Pastki ko'rsatkichlar & Holat */
+    .hud-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      pointer-events: auto;
+    }
+
+    .status-badge {
+      background: rgba(10, 10, 20, 0.88);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-left: 4px solid var(--neon-pink);
+      border-radius: 8px;
+      padding: 12px 20px;
+      font-family: 'Rajdhani', monospace;
+      font-size: 1.05rem;
+      letter-spacing: 1px;
+      display: flex;
+      gap: 22px;
+      box-shadow: 0 4px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    .status-item span.highlight {
+      color: var(--neon-pink);
+      font-weight: 700;
+    }
+
+    .status-item span.cyan {
+      color: var(--neon-cyan);
+      font-weight: 700;
+    }
+
+    .status-item span.green {
+      color: var(--neon-green);
+      font-weight: 700;
+    }
+
+    .guide-tip {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 10px 18px;
+      max-width: 440px;
+      font-size: 0.95rem;
+      color: #eee;
+      line-height: 1.4;
+    }
+
+    /* Boshlash oynasi */
+    #start-modal {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(6, 6, 12, 0.92);
+      backdrop-filter: blur(18px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+      padding: 20px;
+    }
+
+    .modal-card {
+      max-width: 500px;
+      background: rgba(18, 19, 36, 0.88);
+      border: 1px solid var(--neon-pink);
+      border-radius: 22px;
+      padding: 38px 30px;
+      box-shadow: 0 0 60px rgba(255, 42, 141, 0.4);
+      text-align: center;
+    }
+
+    .modal-icon {
+      font-size: 3.6rem;
+      margin-bottom: 12px;
+      filter: drop-shadow(0 0 16px var(--neon-pink));
+    }
+
+    .start-btn {
+      margin-top: 24px;
+      padding: 14px 38px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #fff;
+      background: linear-gradient(135deg, #ff2a8d, #9d00ff);
+      border: none;
+      border-radius: 35px;
+      cursor: pointer;
+      box-shadow: 0 0 35px rgba(255, 42, 141, 0.7);
+      transition: all 0.3s ease;
+      letter-spacing: 1.5px;
+    }
+
+    .start-btn:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 50px rgba(255, 42, 141, 0.95);
+    }
+
+    .gesture-box {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 14px;
+      margin-top: 18px;
+      text-align: left;
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="app-container">
+    <video id="webcam-video" playsinline autoplay muted></video>
+    <canvas id="landmarks-canvas"></canvas>
+    <canvas id="three-canvas"></canvas>
+
+    <!-- HUD Overlay -->
+    <div class="hud-overlay">
+      <!-- Yuqori qism -->
+      <div class="hud-header">
+        <div class="hud-title-box">
+          <div class="brand-title">
+            <div class="live-dot"></div>
+            <span>AIR 3D HAND SCULPTOR</span>
+          </div>
+          <div class="hud-subtitle">QO'L HARAKATI BILAN HAVODA 3D SHAKLLAR YASASH</div>
+        </div>
+
+        <div class="hud-top-actions">
+          <button class="glass-btn" id="btn-undo">
+            ↩️ <span>Bekor qilish (Undo)</span>
+          </button>
+          <button class="glass-btn danger" id="btn-clear">
+            🗑️ <span>Hammasini o'chirish</span>
+          </button>
+          <button class="glass-btn" id="btn-toggle-skeleton">
+            ✋ <span>Skelet: YOQIQ</span>
+          </button>
+          <button class="glass-btn" id="btn-fullscreen">
+            ⛶ <span>To'liq Ekran</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Rejimlar va Shakllar Paneli -->
+      <div class="mode-bar">
+        <div class="panel-header">
+          <span>QO'L BILAN YASASH REJIMI</span>
+        </div>
+        <div class="mode-buttons">
+          <button class="glass-btn mode-btn active" data-mode="draw">
+            ✏️ <span>1. Havoda Erkin Chizish (3D Pen)</span>
+          </button>
+          <button class="glass-btn mode-btn" data-mode="spawn">
+            📐 <span>2. Geometrik Shakl Yasash (Pull)</span>
+          </button>
+          <button class="glass-btn mode-btn" data-mode="rotate">
+            🔄 <span>3. Shaklni Aylantirib Ko'rish</span>
+          </button>
+        </div>
+
+        <div class="shape-selector-box" id="shape-options">
+          <div class="panel-header" style="font-size: 0.75rem;">YASALADIGAN SHAKL TURI:</div>
+          <div class="shape-grid">
+            <button class="glass-btn shape-btn active" data-shape="prism">Prizma (5-burchak)</button>
+            <button class="glass-btn shape-btn" data-shape="cube">Neon Kub</button>
+            <button class="glass-btn shape-btn" data-shape="pyramid">Piramida</button>
+            <button class="glass-btn shape-btn" data-shape="sphere">Neon Shar</button>
+            <button class="glass-btn shape-btn" data-shape="torus">Torus Halqasi</button>
+            <button class="glass-btn shape-btn" data-shape="star">Ikosaedr</button>
+          </div>
+        </div>
+
+        <div class="panel-header" style="font-size: 0.75rem; margin-top: 14px;">NEON RANGLAR:</div>
+        <div class="color-row">
+          <div class="color-swatch active" style="background: #ff2a8d; color: #ff2a8d;" data-color="#ff2a8d"></div>
+          <div class="color-swatch" style="background: #00f3ff; color: #00f3ff;" data-color="#00f3ff"></div>
+          <div class="color-swatch" style="background: #00ff88; color: #00ff88;" data-color="#00ff88"></div>
+          <div class="color-swatch" style="background: #ffbe0b; color: #ffbe0b;" data-color="#ffbe0b"></div>
+          <div class="color-swatch" style="background: #a82aff; color: #a82aff;" data-color="#a82aff"></div>
+        </div>
+      </div>
+
+      <!-- Pastki Status va Qo'llanma -->
+      <div class="hud-footer">
+        <div class="status-badge">
+          <div class="status-item">
+            Qo'l holati: <span class="highlight" id="hand-state-text">Qidirilmoqda...</span>
+          </div>
+          <div class="status-item">
+            Chimchilash (Pinch): <span class="cyan" id="pinch-state-text">Yo'q</span>
+          </div>
+          <div class="status-item">
+            Shakllar soni: <span class="green" id="shapes-count-text">0</span>
+          </div>
+          <div class="status-item">
+            FPS: <span id="fps-text" style="color: #fff; font-weight: bold;">--</span>
+          </div>
+        </div>
+
+        <div class="guide-tip" id="guide-tip-text">
+          💡 <b>Chizish usuli:</b> Bosh barmoq va ko'rsatkich barmog'ingizni bir-biriga tekkizib (chimchilab) havoda harakatlantiring — orqangizdan nurli 3D chiziq chiziladi!
+        </div>
+      </div>
+    </div>
+
+    <!-- Boshlash Modali -->
+    <div id="start-modal">
+      <div class="modal-card">
+        <div class="modal-icon">🪄🖐️📐</div>
+        <h2 style="font-family: 'Orbitron'; color: var(--neon-pink); margin-bottom: 10px;">Havoda 3D Shakllar Yasash</h2>
+        <p style="color: #bbb; font-size: 0.95rem;">
+          Hech qanday sichqoncha kerak emas! O'z qo'lingiz bilan havoda neon 3D chizmalar va geometrik shakllar yarating.
+        </p>
+
+        <div class="gesture-box">
+          <div style="margin-bottom: 8px;">👌 <b>Chimchilash (Pinch):</b> Ko'rsatkich va bosh barmoqni birlashtirsangiz havoda shakl yasaladi yoki chiziladi.</div>
+          <div style="margin-bottom: 8px;">🖐️ <b>Qo'lni ochish:</b> Chizishni yoki shakl yasashni to'xtatadi.</div>
+          <div>🔄 <b>2-Qo'l yoki Aylantirish rejimi:</b> Yaratgan barcha 3D shakllaringizni 360 daraja aylantirib tomosha qiling!</div>
+        </div>
+
+        <button class="start-btn" id="start-btn">KAMERANI YOQISH VA BOSHLASH</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* =====================================================================
+       O'ZGARUVCHILAR VA HOLATLAR
+       ===================================================================== */
+    const video = document.getElementById('webcam-video');
+    const skeletonCanvas = document.getElementById('landmarks-canvas');
+    const skeletonCtx = skeletonCanvas.getContext('2d');
+    const threeCanvas = document.getElementById('three-canvas');
+
+    const handStateText = document.getElementById('hand-state-text');
+    const pinchStateText = document.getElementById('pinch-state-text');
+    const shapesCountText = document.getElementById('shapes-count-text');
+    const fpsText = document.getElementById('fps-text');
+    const guideTipText = document.getElementById('guide-tip-text');
+
+    const startModal = document.getElementById('start-modal');
+    const startBtn = document.getElementById('start-btn');
+    const btnClear = document.getElementById('btn-clear');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnToggleSkeleton = document.getElementById('btn-toggle-skeleton');
+    const btnFullscreen = document.getElementById('btn-fullscreen');
+
+    let currentMode = 'draw'; // 'draw', 'spawn', 'rotate'
+    let currentShape = 'prism';
+    let currentColor = '#ff2a8d';
+    let showSkeleton = true;
+
+    // Yaratilgan obyektlar ro'yxati
+    const createdObjects = [];
+
+    // Erkin chizish uchun joriy chiziq
+    let currentDrawingLine = null;
+    let currentLinePoints = [];
+    const MIN_DISTANCE_BETWEEN_POINTS = 0.08;
+
+    // Shakl yasash (spawn) holati
+    let isSpawningShape = false;
+    let spawnStartPoint = null;
+    let currentSpawnMesh = null;
+
+    // 3D Sahnani qo'l bilan aylantirish
+    let worldRotation = { x: 0, y: 0 };
+    let targetWorldRotation = { x: 0, y: 0 };
+    let lastWristPos = null;
+
+    // Barmoq kursor ma'lumotlari
+    let indexFingerPos3D = new THREE.Vector3(0, 0, 0);
+    let isPinching = false;
+
+    // FPS hisoblash
+    let frameCount = 0;
+    let lastFpsUpdate = performance.now();
+
+    /* =====================================================================
+       THREE.JS SAHNASI
+       ===================================================================== */
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 7);
+
+    const renderer = new THREE.WebGLRenderer({
+      canvas: threeCanvas,
+      alpha: true,
+      antialias: true
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const drawingWorldGroup = new THREE.Group();
+    scene.add(drawingWorldGroup);
+
+    // Barmoq uchi uchun 3D neon kursor
+    const cursorGeometry = new THREE.RingGeometry(0.08, 0.11, 24);
+    const cursorMaterial = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(currentColor),
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.9
+    });
+    const cursorMesh = new THREE.Mesh(cursorGeometry, cursorMaterial);
+    scene.add(cursorMesh);
+
+    function onResize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      skeletonCanvas.width = w;
+      skeletonCanvas.height = h;
+    }
+    window.addEventListener('resize', onResize);
+    onResize();
+
+    /* =====================================================================
+       SHAKLLAR YASASH FUNKSIYALARI
+       ===================================================================== */
+    function getShapeGeometry(type, size = 1) {
+      switch (type) {
+        case 'prism': {
+          const geom = new THREE.CylinderGeometry(0.8 * size, 0.8 * size, 1.3 * size, 5, 1, false);
+          geom.rotateX(Math.PI / 4);
+          return geom;
+        }
+        case 'cube':
+          return new THREE.BoxGeometry(1.2 * size, 1.2 * size, 1.2 * size);
+        case 'pyramid':
+          return new THREE.ConeGeometry(1.0 * size, 1.5 * size, 4);
+        case 'sphere':
+          return new THREE.SphereGeometry(0.9 * size, 14, 10);
+        case 'torus':
+          return new THREE.TorusGeometry(0.8 * size, 0.28 * size, 12, 32);
+        case 'star':
+          return new THREE.IcosahedronGeometry(1.0 * size, 0);
+        default:
+          return new THREE.CylinderGeometry(0.8 * size, 0.8 * size, 1.3 * size, 5);
+      }
+    }
+
+    function createNeonWireframeShape(geometry, colorHex, layers = 3) {
+      const group = new THREE.Group();
+      const wireGeom = new THREE.WireframeGeometry(geometry);
+
+      for (let i = 0; i < layers; i++) {
+        const factor = 1.0 - (i * 0.08);
+        const opacity = (1.0 - (i / layers) * 0.7) * 0.95;
+
+        const mat = new THREE.LineBasicMaterial({
+          color: new THREE.Color(colorHex),
+          transparent: true,
+          opacity: opacity,
+          blending: THREE.AdditiveBlending
+        });
+
+        const line = new THREE.LineSegments(wireGeom, mat);
+        line.scale.set(factor, factor, factor);
+        line.position.z = -i * 0.06;
+        group.add(line);
+      }
+
+      return group;
+    }
+
+    function updateShapesCount() {
+      shapesCountText.innerText = createdObjects.length;
+    }
+
+    function clearAllShapes() {
+      while (drawingWorldGroup.children.length > 0) {
+        const obj = drawingWorldGroup.children[0];
+        drawingWorldGroup.remove(obj);
+      }
+      createdObjects.length = 0;
+      updateShapesCount();
+    }
+
+    function undoLastShape() {
+      if (createdObjects.length > 0) {
+        const last = createdObjects.pop();
+        drawingWorldGroup.remove(last);
+        updateShapesCount();
+      }
+    }
+
+    /* =====================================================================
+       2D EKRAN KOORDINATASINI 3D FAZOGA O'TKAZISH
+       ===================================================================== */
+    function screenToWorld3D(normX, normY, depthZ = 0) {
+      const ndcX = ((1 - normX) * 2) - 1;
+      const ndcY = -(normY * 2) + 1;
+
+      const vec = new THREE.Vector3(ndcX, ndcY, 0.5);
+      vec.unproject(camera);
+
+      vec.sub(camera.position).normalize();
+      const distance = (depthZ - camera.position.z) / vec.z;
+      const pos = camera.position.clone().add(vec.multiplyScalar(distance));
+      return pos;
+    }
+
+    /* =====================================================================
+       HAVODA CHIZISH VA YASASH MANTIG'I
+       ===================================================================== */
+    function handleDrawing(pos3D, pinching) {
+      const localPos = drawingWorldGroup.worldToLocal(pos3D.clone());
+
+      if (pinching) {
+        if (!currentDrawingLine) {
+          currentLinePoints = [localPos];
+          const geometry = new THREE.BufferGeometry().setFromPoints(currentLinePoints);
+          const material = new THREE.LineBasicMaterial({
+            color: new THREE.Color(currentColor),
+            linewidth: 3,
+            transparent: true,
+            opacity: 0.95,
+            blending: THREE.AdditiveBlending
+          });
+
+          currentDrawingLine = new THREE.Line(geometry, material);
+          drawingWorldGroup.add(currentDrawingLine);
+          createdObjects.push(currentDrawingLine);
+          updateShapesCount();
+        } else {
+          const lastPoint = currentLinePoints[currentLinePoints.length - 1];
+          if (lastPoint.distanceTo(localPos) > MIN_DISTANCE_BETWEEN_POINTS) {
+            currentLinePoints.push(localPos);
+            currentDrawingLine.geometry.dispose();
+            currentDrawingLine.geometry = new THREE.BufferGeometry().setFromPoints(currentLinePoints);
+          }
+        }
+      } else {
+        currentDrawingLine = null;
+        currentLinePoints = [];
+      }
+    }
+
+    function handleSpawning(pos3D, pinching) {
+      const localPos = drawingWorldGroup.worldToLocal(pos3D.clone());
+
+      if (pinching) {
+        if (!isSpawningShape) {
+          isSpawningShape = true;
+          spawnStartPoint = localPos.clone();
+
+          const geom = getShapeGeometry(currentShape, 0.2);
+          currentSpawnMesh = createNeonWireframeShape(geom, currentColor, 3);
+          currentSpawnMesh.position.copy(localPos);
+          drawingWorldGroup.add(currentSpawnMesh);
+        } else {
+          const dist = spawnStartPoint.distanceTo(localPos);
+          const scale = Math.max(dist * 1.5, 0.3);
+          currentSpawnMesh.scale.set(scale, scale, scale);
+          currentSpawnMesh.rotation.x += 0.02;
+          currentSpawnMesh.rotation.y += 0.03;
+        }
+      } else {
+        if (isSpawningShape) {
+          isSpawningShape = false;
+          if (currentSpawnMesh) {
+            createdObjects.push(currentSpawnMesh);
+            updateShapesCount();
+            currentSpawnMesh = null;
+          }
+        }
+      }
+    }
+
+    function handleRotating(wristNormPos, pinching) {
+      if (lastWristPos) {
+        const deltaX = (wristNormPos.x - lastWristPos.x) * 6;
+        const deltaY = (wristNormPos.y - lastWristPos.y) * 6;
+        targetWorldRotation.y -= deltaX;
+        targetWorldRotation.x += deltaY;
+      }
+      lastWristPos = { x: wristNormPos.x, y: wristNormPos.y };
+    }
+
+    /* =====================================================================
+       MEDIAPIPE QO'L KUZATUVI & CHIZISH
+       ===================================================================== */
+    const HAND_CONNECTIONS = [
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      [5, 9], [9, 10], [10, 11], [11, 12],
+      [9, 13], [13, 14], [14, 15], [15, 16],
+      [13, 17], [17, 18], [18, 19], [19, 20],
+      [0, 17]
+    ];
+
+    function drawSkeleton(hands) {
+      skeletonCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+      if (!showSkeleton) return;
+
+      const w = skeletonCanvas.width;
+      const h = skeletonCanvas.height;
+
+      hands.forEach((landmarks, idx) => {
+        const col = idx === 0 ? currentColor : '#00f3ff';
+        skeletonCtx.beginPath();
+        skeletonCtx.lineWidth = 2;
+        skeletonCtx.strokeStyle = col;
+        skeletonCtx.shadowColor = col;
+        skeletonCtx.shadowBlur = 6;
+
+        HAND_CONNECTIONS.forEach(([i, j]) => {
+          const p1 = landmarks[i];
+          const p2 = landmarks[j];
+          skeletonCtx.moveTo((1 - p1.x) * w, p1.y * h);
+          skeletonCtx.lineTo((1 - p2.x) * w, p2.y * h);
+        });
+        skeletonCtx.stroke();
+        skeletonCtx.shadowBlur = 0;
+
+        landmarks.forEach(p => {
+          skeletonCtx.beginPath();
+          skeletonCtx.arc((1 - p.x) * w, p.y * h, 3.5, 0, Math.PI * 2);
+          skeletonCtx.fillStyle = '#fff';
+          skeletonCtx.fill();
+        });
+      });
+    }
+
+    function onHandResults(results) {
+      frameCount++;
+      const now = performance.now();
+      if (now - lastFpsUpdate >= 1000) {
+        fpsText.innerText = `${frameCount} fps`;
+        frameCount = 0;
+        lastFpsUpdate = now;
+      }
+
+      const hands = results.multiHandLandmarks;
+
+      if (hands && hands.length > 0) {
+        drawSkeleton(hands);
+
+        const leadHand = hands[0];
+        const wrist = leadHand[0];
+        const thumbTip = leadHand[4];
+        const indexTip = leadHand[8];
+
+        const dx = thumbTip.x - indexTip.x;
+        const dy = thumbTip.y - indexTip.y;
+        const dz = (thumbTip.z || 0) - (indexTip.z || 0);
+        const pinchDistance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        isPinching = pinchDistance < 0.085;
+
+        indexFingerPos3D = screenToWorld3D(indexTip.x, indexTip.y, 0);
+        cursorMesh.position.copy(indexFingerPos3D);
+        cursorMesh.scale.set(isPinching ? 1.4 : 1.0, isPinching ? 1.4 : 1.0, 1.0);
+        cursorMaterial.opacity = isPinching ? 1.0 : 0.6;
+        cursorMaterial.color.set(isPinching ? '#ffffff' : currentColor);
+
+        handStateText.innerText = `Ko'rsatkich barmoq faol`;
+        pinchStateText.innerHTML = isPinching 
+          ? `<b style="color: #00ff88;">HA (Qalam faol)</b>` 
+          : `Yo'q (Ochiq)`;
+
+        if (currentMode === 'draw') {
+          handleDrawing(indexFingerPos3D, isPinching);
+        } else if (currentMode === 'spawn') {
+          handleSpawning(indexFingerPos3D, isPinching);
+        } else if (currentMode === 'rotate') {
+          handleRotating(wrist, isPinching);
+        }
+
+        if (hands.length > 1) {
+          const secondHand = hands[1];
+          const secondWrist = secondHand[0];
+          handleRotating(secondWrist, true);
+        }
+
+      } else {
+        skeletonCtx.clearRect(0, 0, skeletonCanvas.width, skeletonCanvas.height);
+        handStateText.innerText = `Qo'l ko'rinmayapti`;
+        pinchStateText.innerText = `Yo'q`;
+        cursorMaterial.opacity = 0;
+        lastWristPos = null;
+
+        if (currentDrawingLine) {
+          currentDrawingLine = null;
+        }
+        if (isSpawningShape) {
+          isSpawningShape = false;
+        }
+      }
+    }
+
+    const handsTracker = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    handsTracker.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.65
+    });
+
+    handsTracker.onResults(onHandResults);
+
+    let cameraInstance = null;
+
+    function initCamera() {
+      cameraInstance = new Camera(video, {
+        onFrame: async () => {
+          await handsTracker.send({ image: video });
+        },
+        width: 1280,
+        height: 720
+      });
+
+      cameraInstance.start().then(() => {
+        startModal.style.display = 'none';
+      }).catch(err => {
+        alert("Kamerani yoqishda xatolik yuz berdi: " + err.message);
+      });
+    }
+
+    startBtn.addEventListener('click', initCamera);
+
+    /* =====================================================================
+       RENDER VA ANIMATSIYA SIKLI
+       ==================================================================== */
+    function renderLoop() {
+      requestAnimationFrame(renderLoop);
+
+      worldRotation.x += (targetWorldRotation.x - worldRotation.x) * 0.08;
+      worldRotation.y += (targetWorldRotation.y - worldRotation.y) * 0.08;
+
+      drawingWorldGroup.rotation.x = worldRotation.x;
+      drawingWorldGroup.rotation.y = worldRotation.y;
+
+      cursorMesh.rotation.z += 0.04;
+
+      renderer.render(scene, camera);
+    }
+    renderLoop();
+
+    /* =====================================================================
+       UI BOSHQARUV TUGMALARI
+       ===================================================================== */
+    const modeButtons = document.querySelectorAll('.mode-btn');
+
+    modeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        modeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.getAttribute('data-mode');
+
+        if (currentMode === 'draw') {
+          guideTipText.innerHTML = `💡 <b>Chizish usuli:</b> Ko'rsatkich va bosh barmog'ingizni birlashtiring (chimchilang) va havoda xohlagan shaklingiz yoki yozuvingizni chizing!`;
+        } else if (currentMode === 'spawn') {
+          guideTipText.innerHTML = `💡 <b>Shakl yasash:</b> Havoda barmog'ingizni chimchilab torting — o'zingiz tanlagan 3D shakl (prizma, kub, shar) yasaladi!`;
+        } else if (currentMode === 'rotate') {
+          guideTipText.innerHTML = `💡 <b>Aylantirib ko'rish:</b> Qo'lingizni harakatlantirib, yasalgan barcha 3D shakllarni 360 daraja aylantiring!`;
+        }
+      });
+    });
+
+    const shapeBtns = document.querySelectorAll('.shape-btn');
+    shapeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        shapeBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentShape = btn.getAttribute('data-shape');
+      });
+    });
+
+    const colorSwatches = document.querySelectorAll('.color-swatch');
+    colorSwatches.forEach(sw => {
+      sw.addEventListener('click', () => {
+        colorSwatches.forEach(s => s.classList.remove('active'));
+        sw.classList.add('active');
+        currentColor = sw.getAttribute('data-color');
+        cursorMaterial.color.set(currentColor);
+        document.documentElement.style.setProperty('--neon-pink', currentColor);
+      });
+    });
+
+    btnClear.addEventListener('click', clearAllShapes);
+    btnUndo.addEventListener('click', undoLastShape);
+
+    btnToggleSkeleton.addEventListener('click', () => {
+      showSkeleton = !showSkeleton;
+      btnToggleSkeleton.querySelector('span').innerText = showSkeleton ? "Skelet: YOQIQ" : "Skelet: O'CHIQLIK";
+      btnToggleSkeleton.classList.toggle('active', showSkeleton);
+    });
+
+    btnFullscreen.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(err => console.log(err));
+      } else {
+        document.exitFullscreen();
+      }
+    });
+  </script>
+</body>
+</html>
